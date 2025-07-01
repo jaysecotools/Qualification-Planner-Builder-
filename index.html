@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Qualification Planner Builder</title>
+<style>
+body{font-family:'Segoe UI',sans-serif;margin:0;padding:20px;background:#f9f9f9}
+.container{max-width:1200px;margin:0 auto;background:#fff;padding:30px;box-shadow:0 0 20px rgba(0,0,0,0.1);border-radius:8px}
+h1,h2,h3{color:#2c3e50}h1{border-bottom:2px solid #3498db;padding-bottom:10px}
+.builder-section{background:#f5f7fa;padding:20px;margin-bottom:25px;border-radius:5px;border-left:4px solid #3498db}
+table{width:100%;border-collapse:collapse;margin:15px 0}
+th{background:#3498db;color:#fff;text-align:left}
+th,td{padding:12px;border:1px solid #ddd}
+tr:nth-child(even){background:#f2f2f2}
+input,button,select{padding:8px 12px;margin:5px 0;border:1px solid #ddd;border-radius:4px}
+button{background:#3498db;color:#fff;border:none;cursor:pointer;transition:background 0.3s}
+button:hover{background:#2980b9}
+.rule{background:#fff;padding:10px;margin:10px 0;border-radius:4px;border:1px solid #eee}
+.export-section{background:#e8f4fc;padding:20px}
+#generatedCode{width:100%;height:300px;font-family:monospace}
+.tab{display:none}.tab.active{display:block}
+.tab-buttons{margin-bottom:20px}
+.tab-buttons button{background:#95a5a6;margin-right:5px}
+.tab-buttons button.active{background:#3498db}
+select[multiple]{min-height:100px;width:200px}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Qualification Planner Builder</h1>
+<div class="tab-buttons">
+<button class="active" onclick="openTab(event, 'tab-qualification')">1. Qualification</button>
+<button onclick="openTab(event, 'tab-groups')">2. Unit Groups</button>
+<button onclick="openTab(event, 'tab-units')">3. Units</button>
+<button onclick="openTab(event, 'tab-rules')">4. Rules</button>
+<button onclick="openTab(event, 'tab-export')">5. Generate</button>
+</div>
+
+<div id="tab-qualification" class="tab active">
+<div class="builder-section">
+<h2>Qualification Details</h2>
+<label>Qualification Title: <input type="text" id="qualTitle" placeholder="e.g., CIII Conservation"></label><br>
+<label>Qualification Code: <input type="text" id="qualCode" placeholder="e.g., AHC31420"></label><br>
+<label>Default Unit Duration: <input type="number" id="defaultDuration" value="6" min="1"> weeks</label>
+</div></div>
+
+<div id="tab-groups" class="tab">
+<div class="builder-section">
+<h2>Unit Groups</h2>
+<table id="groups-table"><thead><tr><th>Group ID</th><th>Display Name</th><th>Min Units</th><th>Max Units</th><th>Actions</th></tr></thead><tbody></tbody></table>
+<button onclick="addGroup()">+ Add Group</button>
+</div></div>
+
+<div id="tab-units" class="tab">
+<div class="builder-section">
+<h2>Units</h2>
+<div style="margin-bottom:15px">
+<button onclick="addUnit()">+ Add Unit</button>
+<button onclick="importUnits()">📋 Import CSV</button>
+</div>
+<table id="units-table"><thead><tr><th>Code</th><th>Name</th><th>Group(s)</th><th>Duration</th><th>Actions</th></tr></thead><tbody></tbody></table>
+</div></div>
+
+<div id="tab-rules" class="tab">
+<div class="builder-section">
+<h2>Packaging Rules</h2>
+<div class="rule">
+<h3>Core Units</h3>
+<label><input type="checkbox" id="coreUnitsRequired" checked> Require <input type="number" id="coreUnitsCount" value="2" min="0"> core units</label>
+</div>
+<div id="group-rules"><h3>Group Rules</h3></div>
+<div class="rule">
+<h3>Global Rules</h3>
+<label>Total units required: <input type="number" id="totalUnitsRequired" value="16" min="1"></label>
+</div>
+<div class="rule">
+<h3>Special Rules</h3>
+<label><input type="checkbox" id="allowImportedUnits"> Allow imported units (max <input type="number" id="maxImportedUnits" value="4" min="0">)</label><br>
+<label><input type="checkbox" id="allowElectives"> Allow electives (max <input type="number" id="maxElectives" value="6" min="0">)</label>
+</div></div></div>
+
+<div id="tab-export" class="tab">
+<div class="export-section">
+<h2>Generate Planner</h2>
+<button onclick="generateTool()">Generate Tool</button>
+<div id="output" style="margin-top:30px">
+<h3>Generated Code</h3>
+<textarea id="generatedCode" readonly></textarea>
+<button onclick="downloadTool()">Download HTML</button>
+<button onclick="testTool()">Test in New Tab</button>
+</div></div></div></div>
+
+<script>
+// Data storage
+let groups=[{id:"core",name:"Core Units",minUnits:2,maxUnits:2},{id:"groupB",name:"Group B",minUnits:0,maxUnits:null}];
+let units=[{code:"AHCECR309",name:"Conduct ecological inspections",duration:6,groups:["core"]},{code:"AHCWHS302",name:"Workplace safety",duration:6,groups:["core"]}];
+
+// Initialize
+document.addEventListener('DOMContentLoaded',()=>{renderGroups();renderUnits();renderGroupRules();});
+
+// Tab navigation
+function openTab(event, tabId){
+    document.querySelectorAll('.tab').forEach(tab=>tab.classList.remove('active'));
+    document.querySelectorAll('.tab-buttons button').forEach(btn=>btn.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    event.target.classList.add('active');
+}
+
+// Group management
+function addGroup(){
+    const groupId=prompt("Group ID (e.g., 'core'):");
+    if(!groupId) return;
+    const groupName=prompt("Display Name:",groupId);
+    groups.push({id:groupId,name:groupName,minUnits:0,maxUnits:null});
+    renderGroups();
+    renderGroupRules();
+}
+
+function renderGroups(){
+    const tbody=document.querySelector("#groups-table tbody");
+    tbody.innerHTML='';
+    groups.forEach((g,i)=>{
+        tbody.innerHTML+=`<tr>
+            <td><input value="${g.id}" onchange="groups[${i}].id=this.value"></td>
+            <td><input value="${g.name}" onchange="groups[${i}].name=this.value"></td>
+            <td><input type="number" value="${g.minUnits||0}" onchange="groups[${i}].minUnits=parseInt(this.value)||0"></td>
+            <td><input type="number" value="${g.maxUnits||''}" onchange="groups[${i}].maxUnits=this.value?parseInt(this.value):null"></td>
+            <td><button onclick="deleteGroup(${i})">Delete</button></td>
+        </tr>`;
+    });
+}
+
+function deleteGroup(i){
+    if(confirm(`Delete group '${groups[i].id}'?`)){
+        // Remove this group from any units that reference it
+        units.forEach(u => {
+            u.groups = u.groups.filter(g => g !== groups[i].id);
+        });
+        groups.splice(i,1);
+        renderGroups();
+        renderUnits();
+        renderGroupRules();
+    }
+}
+
+// Unit management
+function addUnit(){
+    const code=prompt("Unit Code:");
+    if(!code) return;
+    const name=prompt("Unit Name:");
+    const duration=parseInt(prompt("Duration (weeks):",document.getElementById("defaultDuration").value)) || parseInt(document.getElementById("defaultDuration").value);
+    
+    let groupList=groups.map(g=>`${g.id} (${g.name})`).join('\n');
+    const selectedGroups=prompt(`Assign groups (separate with commas):\n\n${groupList}`)
+        .split(',')
+        .map(g=>g.trim().split(' ')[0])
+        .filter(g=>groups.some(gr=>gr.id===g));
+    
+    if(selectedGroups.length===0){
+        alert("Using 'core' as default");
+        selectedGroups.push("core");
+    }
+    
+    units.push({code,name,duration,groups:selectedGroups});
+    renderUnits();
+}
+
+function importUnits(){
+    const csv=prompt("Paste CSV (code,name,groups,duration):\nExample:\nAHCECR309,Conduct inspections,core,6");
+    if(!csv) return;
+    
+    csv.split('\n').forEach(line=>{
+        const parts = line.split(',');
+        if(parts.length < 2) return;
+        
+        const code = parts[0].trim();
+        const name = parts[1].trim();
+        const groupStr = parts.length > 2 ? parts[2].trim() : "core";
+        const duration = parts.length > 3 ? parseInt(parts[3].trim()) : parseInt(document.getElementById("defaultDuration").value);
+        
+        const groups = groupStr.split('|').map(g => g.trim());
+        
+        if(code && name){
+            units.push({
+                code,
+                name,
+                duration: duration || parseInt(document.getElementById("defaultDuration").value),
+                groups: groups.length ? groups : ["core"]
+            });
+        }
+    });
+    
+    renderUnits();
+}
+
+function renderUnits(){
+    const tbody=document.querySelector("#units-table tbody");
+    tbody.innerHTML='';
+    units.forEach((u,i)=>{
+        tbody.innerHTML+=`<tr>
+            <td><input value="${u.code}" onchange="units[${i}].code=this.value"></td>
+            <td><input value="${u.name}" onchange="units[${i}].name=this.value"></td>
+            <td><select multiple onchange="updateUnitGroups(${i},this)">
+                ${groups.map(g=>`<option value="${g.id}" ${u.groups.includes(g.id)?'selected':''}>${g.name}</option>`).join('')}
+            </select></td>
+            <td><input type="number" value="${u.duration}" onchange="units[${i}].duration=parseInt(this.value)||${parseInt(document.getElementById("defaultDuration").value)}"></td>
+            <td><button onclick="deleteUnit(${i})">Delete</button></td>
+        </tr>`;
+    });
+}
+
+function updateUnitGroups(i,select){
+    units[i].groups=Array.from(select.selectedOptions).map(o=>o.value);
+}
+
+function deleteUnit(i){
+    if(confirm(`Delete unit '${units[i].code}'?`)){
+        units.splice(i,1);
+        renderUnits();
+    }
+}
+
+// Packaging rules
+function renderGroupRules(){
+    const container=document.getElementById('group-rules');
+    container.innerHTML='<h3>Group Rules</h3>';
+    
+    groups.forEach(g=>{
+        if(g.id==='core') return;
+        
+        container.innerHTML+=`<div class="rule">
+            <label>Group <strong>${g.id}</strong> (${g.name}): 
+                Require <input type="number" data-group="${g.id}" class="group-min" value="${g.minUnits||0}" min="0" onchange="updateGroupRule('${g.id}', 'min', this.value)"> 
+                to <input type="number" data-group="${g.id}" class="group-max" value="${g.maxUnits||''}" min="0" placeholder="No max" onchange="updateGroupRule('${g.id}', 'max', this.value)">
+                units
+            </label>
+        </div>`;
+    });
+}
+
+function updateGroupRule(groupId, type, value){
+    const group = groups.find(g => g.id === groupId);
+    if(group){
+        if(type === 'min'){
+            group.minUnits = parseInt(value) || 0;
+        }else if(type === 'max'){
+            group.maxUnits = value ? parseInt(value) : null;
+        }
+    }
+}
+
+// Tool generation
+function generateTool(){
+    const config={
+        title: document.getElementById("qualTitle").value || "Qualification Planner",
+        code: document.getElementById("qualCode").value || "",
+        defaultDuration: parseInt(document.getElementById("defaultDuration").value) || 6,
+        groups: groups.map(g => ({
+            id: g.id,
+            name: g.name,
+            minUnits: g.minUnits || 0,
+            maxUnits: g.maxUnits || null
+        })),
+        units: units.map(u => ({
+            code: u.code,
+            name: u.name,
+            duration: u.duration,
+            groups: u.groups
+        })),
+        rules: {
+            coreUnitsRequired: document.getElementById("coreUnitsRequired").checked,
+            coreUnitsCount: parseInt(document.getElementById("coreUnitsCount").value) || 0,
+            totalUnitsRequired: parseInt(document.getElementById("totalUnitsRequired").value) || 16,
+            allowImportedUnits: document.getElementById("allowImportedUnits").checked,
+            maxImportedUnits: parseInt(document.getElementById("maxImportedUnits").value) || 0,
+            allowElectives: document.getElementById("allowElectives").checked,
+            maxElectives: parseInt(document.getElementById("maxElectives").value) || 0
+        }
+    };
+    
+    config.groupRules = {};
+    groups.forEach(g => {
+        if(g.id !== 'core'){
+            config.groupRules[g.id] = {
+                min: g.minUnits || 0,
+                max: g.maxUnits || null
+            };
+        }
+    });
+    
+    document.getElementById("generatedCode").value = generateCompleteTool(config);
+}
+
+function generateCompleteTool(config){
+    // Separate core units from other units
+    const coreUnits = config.units.filter(u => u.groups.includes('core'));
+    const electiveUnits = config.units.filter(u => !u.groups.includes('core'));
+    
+    // Group units by their groups for display
+    const groupedUnits = {};
+    config.groups.forEach(g => {
+        groupedUnits[g.id] = config.units.filter(u => u.groups.includes(g.id));
+    });
+    
+    return `<!DOCTYPE html>
+<html><!-- Generated by Qualification Planner Builder -->
+<head>
+    <meta charset="UTF-8">
+    <title>${config.title} Unit Planner</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background: #f7f9fa;
+            line-height: 1.6;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        h2 {
+            margin-top: 2em;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 0.5em;
+        }
+        table, th, td {
+            border: 1px solid #ccc;
+            border-collapse: collapse;
+            padding: 8px;
+        }
+        th {
+            background: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background: #f2f2f2;
+        }
+        input[type="number"] {
+            width: 60px;
+        }
+        .unit-group {
+            margin-bottom: 1.5em;
+            padding: 1em;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .group-label {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 0.5em;
+            display: block;
+            color: #2c3e50;
+        }
+        .unit-item {
+            margin: 8px 0;
+            padding: 8px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        #validationIndicator {
+            margin-top: 1em;
+            font-weight: bold;
+            padding: 1em;
+            border-radius: 5px;
+            display: inline-block;
+        }
+        #validationIndicator.valid {
+            color: #155724;
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+        }
+        #validationIndicator.invalid {
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+        }
+        .export-buttons {
+            margin-top: 1.5em;
+        }
+        .export-buttons button {
+            margin-right: 10px;
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .export-buttons button:hover {
+            background: #2980b9;
+        }
+        select[multiple] {
+            height: auto;
+            min-height: 100px;
+            width: 100%;
+            padding: 8px;
+        }
+        button[type="submit"] {
+            padding: 10px 20px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        button[type="submit"]:hover {
+            background: #219653;
+        }
+        label {
+            display: block;
+            margin: 10px 0;
+        }
+        input[type="text"], input[type="date"], input[type="number"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <h1>${config.title}${config.code ? ` (${config.code})` : ''} – Unit Planner</h1>
+    
+    <form id="unitForm">
+        <h2>1. Select Units</h2>
+        
+        ${config.groups.map(g => {
+            const unitsInGroup = groupedUnits[g.id] || [];
+            if(unitsInGroup.length === 0) return '';
+            
+            return `<div class="unit-group" id="${g.id}-group">
+                <span class="group-label">${g.name} ${g.minUnits || g.maxUnits ? 
+                    `(Require ${g.minUnits || '0'}${g.maxUnits ? `-${g.maxUnits}` : '+'} units)` : ''}
+                </span>
+                ${unitsInGroup.map(u => `
+                    <div class="unit-item">
+                        <label>
+                            <input type="checkbox" 
+                                   value="${u.code}" 
+                                   data-code="${u.code}" 
+                                   data-name="${u.name}" 
+                                   data-groups="${u.groups.join(',')}"
+                                   ${g.id === 'core' ? 'checked disabled' : ''}>
+                            ${u.code} – ${u.name}
+                            &nbsp; Duration: <input type="number" min="1" value="${u.duration}" class="duration" data-unit="${u.code}"> weeks
+                        </label>
+                    </div>
+                `).join('')}
+            </div>`;
+        }).join('')}
+        
+        <div id="validationIndicator" class="invalid">Please select units according to packaging rules.</div>
+        
+        <h2>2. Student Details</h2>
+        <label>Student Name: <input type="text" id="studentName" required /></label><br /><br />
+        
+        <h2>3. Schedule Options</h2>
+        <label>Course Start Date: <input type="date" id="startDate" required /></label><br /><br />
+        
+        <button type="submit">Generate Schedule</button>
+    </form>
+    
+    <div class="export-buttons">
+        <button onclick="exportToCSV()">Export to CSV</button>
+        <button onclick="exportToPDF()">Export to PDF</button>
+    </div>
+    
+    <div id="results" style="margin-top:2em;"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <script>
+        window.jsPDF = window.jspdf.jsPDF;
+        
+        const units = ${JSON.stringify(config.units)};
+        const groups = ${JSON.stringify(config.groups)};
+        const packagingRules = ${JSON.stringify(config.rules)};
+        const groupRules = ${JSON.stringify(config.groupRules)};
+        
+        function validateSelection() {
+            const selected = getSelectedUnits();
+            const errors = validate(selected);
+            const indicator = document.getElementById('validationIndicator');
+            
+            if(errors.length > 0) {
+                indicator.className = 'invalid';
+                indicator.textContent = 'Invalid selection: ' + errors.join(', ');
+                return false;
+            } else {
+                indicator.className = 'valid';
+                indicator.textContent = 'Selection meets all requirements';
+                return true;
+            }
+        }
+        
+        function validate(selected) {
+            const groupCounts = {};
+            groups.forEach(g => groupCounts[g.id] = 0);
+            
+            selected.forEach(u => {
+                u.groups.forEach(g => {
+                    groupCounts[g] = (groupCounts[g] || 0) + 1;
+                });
+            });
+            
+            const errors = [];
+            
+            // Validate core units
+            if(packagingRules.coreUnitsRequired) {
+                if(groupCounts.core !== packagingRules.coreUnitsCount) {
+                    errors.push(\`Must select exactly \${packagingRules.coreUnitsCount} core units\`);
+                }
+            }
+            
+            // Validate group rules
+            Object.entries(groupRules).forEach(([groupId, rule]) => {
+                const count = groupCounts[groupId] || 0;
+                
+                if(rule.min && count < rule.min) {
+                    errors.push(\`Group \${groupId} requires at least \${rule.min} units\`);
+                }
+                
+                if(rule.max && count > rule.max) {
+                    errors.push(\`Group \${groupId} allows maximum \${rule.max} units\`);
+                }
+            });
+            
+            // Validate total units
+            if(selected.length !== packagingRules.totalUnitsRequired) {
+                errors.push(\`Exactly \${packagingRules.totalUnitsRequired} units must be selected\`);
+            }
+            
+            return errors;
+        }
+        
+        function getSelectedUnits() {
+            const selected = [];
+            document.querySelectorAll("input[type=checkbox]").forEach(cb => {
+                if(cb.checked) {
+                    const code = cb.dataset.code;
+                    const name = cb.dataset.name;
+                    const groups = cb.dataset.groups ? cb.dataset.groups.split(',') : ["core"];
+                    const duration = parseInt(document.querySelector(\`input.duration[data-unit="\${code}"]\`)?.value || ${config.defaultDuration};
+                    
+                    selected.push({ code, name, groups, duration });
+                }
+            });
+            return selected;
+        }
+        
+        function generateSchedule(units, startDateStr) {
+            const schedule = [];
+            let currentDate = new Date(startDateStr);
+            
+            for(const unit of units) {
+                const startDate = new Date(currentDate);
+                const endDate = new Date(startDate);
+                endDate.setDate(endDate.getDate() + (unit.duration * 7) - 1);
+                
+                schedule.push({
+                    ...unit,
+                    startDate: formatDate(startDate),
+                    endDate: formatDate(endDate)
+                });
+                
+                currentDate = new Date(endDate);
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            
+            return schedule;
+        }
+        
+        function formatDate(date) {
+            const day = date.getDate().toString().padStart(2, "0");
+            const month = (date.getMonth() + 1).toString().padStart(2, "0");
+            const year = date.getFullYear();
+            return \`\${day}/\${month}/\${year}\`;
+        }
+        
+        function renderSchedule(schedule, startDateStr) {
+            const resultsDiv = document.getElementById('results');
+            
+            if(!schedule.length) {
+                resultsDiv.innerHTML = "<p>No schedule available.</p>";
+                return;
+            }
+            
+            const studentName = document.getElementById('studentName').value || 'Student';
+            const [year, month, day] = startDateStr.split('-');
+            const startDate = new Date(year, month - 1, day);
+            const endDateParts = schedule[schedule.length - 1].endDate.split('/');
+            const endDate = new Date(endDateParts[2], endDateParts[1] - 1, endDateParts[0]);
+            
+            const weeks = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24 * 7));
+            
+            let html = \`
+                <h2>📅 Schedule for \${studentName}</h2>
+                <p><strong>Duration:</strong> \${weeks} weeks (\${formatDate(startDate)} to \${formatDate(endDate)})</p>
+            \`;
+            
+            if(weeks > 100) {
+                html += \`<p style="color:red">⚠ Exceeds 100-week target</p>\`;
+            }
+            
+            html += \`
+                <table>
+                    <tr>
+                        <th>Code</th>
+                        <th>Name</th>
+                        <th>Start Date</th>
+                        <th>End Date</th>
+                        <th>Duration (weeks)</th>
+                    </tr>
+            \`;
+            
+            schedule.forEach(unit => {
+                html += \`
+                    <tr>
+                        <td>\${unit.code}</td>
+                        <td>\${unit.name}</td>
+                        <td>\${unit.startDate}</td>
+                        <td>\${unit.endDate}</td>
+                        <td>\${unit.duration}</td>
+                    </tr>
+                \`;
+            });
+            
+            html += \`</table>\`;
+            resultsDiv.innerHTML = html;
+        }
+        
+        function exportToCSV() {
+            const table = document.querySelector('#results table');
+            if(!table) return alert('No schedule to export');
+            
+            const studentName = document.getElementById('studentName').value || 'schedule';
+            let csv = \`Student Name,\${studentName}\\n\`;
+            csv += \`Generated,\${new Date().toLocaleDateString()}\\n\\n\`;
+            
+            // Headers
+            const headers = [];
+            table.querySelectorAll('th').forEach(th => {
+                headers.push(th.textContent.trim());
+            });
+            csv += headers.join(',') + '\\n';
+            
+            // Rows
+            table.querySelectorAll('tr:not(:first-child)').forEach(tr => {
+                const row = [];
+                tr.querySelectorAll('td').forEach(td => {
+                    row.push('"' + td.textContent.trim().replace(/"/g, '""') + '"');
+                });
+                csv += row.join(',') + '\\n';
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = \`\${studentName.replace(/[^a-z0-9]/gi, '_')}_schedule.csv\`;
+            link.click();
+        }
+        
+        function exportToPDF() {
+            const table = document.querySelector('#results table');
+            if(!table) return alert('No schedule to export');
+            
+            const studentName = document.getElementById('studentName').value || 'schedule';
+            const doc = new jsPDF();
+            
+            // Title
+            doc.setFontSize(16);
+            doc.text(\`Schedule - \${studentName}\`, 14, 16);
+            
+            // Generation date
+            doc.setFontSize(10);
+            doc.text(\`Generated: \${new Date().toLocaleDateString()}\`, 14, 24);
+            
+            // Prepare table data
+            const headers = [];
+            table.querySelectorAll('th').forEach(th => {
+                headers.push(th.textContent.trim());
+            });
+            
+            const rows = [];
+            table.querySelectorAll('tr:not(:first-child)').forEach(tr => {
+                const row = [];
+                tr.querySelectorAll('td').forEach(td => {
+                    row.push(td.textContent.trim());
+                });
+                rows.push(row);
+            });
+            
+            // Add table
+            doc.autoTable({
+                head: [headers],
+                body: rows,
+                startY: 30,
+                headStyles: {
+                    fillColor: [52, 152, 219],
+                    textColor: 255
+                },
+                alternateRowStyles: {
+                    fillColor: [242, 242, 242]
+                },
+                margin: { top: 30 }
+            });
+            
+            // Save PDF
+            doc.save(\`\${studentName.replace(/[^a-z0-9]/gi, '_')}_schedule.pdf\`);
+        }
+        
+        // Setup event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Validate selection when checkboxes change
+            document.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                cb.addEventListener('change', validateSelection);
+            });
+            
+            // Validate selection when durations change
+            document.querySelectorAll('input.duration').forEach(input => {
+                input.addEventListener('change', validateSelection);
+            });
+            
+            // Form submission
+            document.getElementById('unitForm').addEventListener('submit', e => {
+                e.preventDefault();
+                
+                const selected = getSelectedUnits();
+                const errors = validate(selected);
+                
+                if(errors.length > 0) {
+                    alert('Please fix the following issues:\\n\\n' + errors.join('\\n'));
+                    return;
+                }
+                
+                const startDate = document.getElementById('startDate').value;
+                if(!startDate) {
+                    alert('Please select a start date');
+                    return;
+                }
+                
+                const schedule = generateSchedule(selected, startDate);
+                renderSchedule(schedule, startDate);
+            });
+            
+            // Set default date to today
+            const today = new Date();
+            const formattedDate = today.toISOString().substr(0, 10);
+            document.getElementById('startDate').value = formattedDate;
+        });
+
+}
+
+function downloadTool(){
+    const code=document.getElementById("generatedCode").value;
+    if(!code) return alert('Please generate the tool first');
+    
+    const blob=new Blob([code],{type:"text/html"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="qualification-planner.html";
+    a.click();
+}
+
+function testTool(){
+    const code=document.getElementById("generatedCode").value;
+    if(!code) return alert('Please generate the tool first');
+    
+    const win=window.open("","_blank");
+    win.document.write(code);
+    win.document.close();
+}
+</script>
+</body>
+</html>
