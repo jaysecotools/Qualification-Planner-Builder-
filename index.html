@@ -23,6 +23,7 @@ button:hover{background:#2980b9}
 .tab-buttons button{background:#95a5a6;margin-right:5px}
 .tab-buttons button.active{background:#3498db}
 select[multiple]{min-height:100px;width:200px}
+.error {color: #e74c3c; font-size: 0.9em;}
 </style>
 </head>
 <body>
@@ -92,51 +93,106 @@ select[multiple]{min-height:100px;width:200px}
 
 <script>
 // Data storage
-let groups=[{id:"core",name:"Core Units",minUnits:2,maxUnits:2},{id:"groupB",name:"Group B",minUnits:0,maxUnits:null}];
-let units=[{code:"AHCECR309",name:"Conduct ecological inspections",duration:6,groups:["core"]},{code:"AHCWHS302",name:"Workplace safety",duration:6,groups:["core"]}];
+let groups = [
+    {id: "core", name: "Core Units", minUnits: 2, maxUnits: 2},
+    {id: "groupB", name: "Group B", minUnits: 0, maxUnits: null}
+];
+let units = [
+    {code: "AHCECR309", name: "Conduct ecological inspections", duration: 6, groups: ["core"]},
+    {code: "AHCWHS302", name: "Workplace safety", duration: 6, groups: ["core"]}
+];
 
 // Initialize
-document.addEventListener('DOMContentLoaded',()=>{renderGroups();renderUnits();renderGroupRules();});
+document.addEventListener('DOMContentLoaded', () => {
+    renderGroups();
+    renderUnits();
+    renderGroupRules();
+});
 
 // Tab navigation
-function openTab(event, tabId){
-    document.querySelectorAll('.tab').forEach(tab=>tab.classList.remove('active'));
-    document.querySelectorAll('.tab-buttons button').forEach(btn=>btn.classList.remove('active'));
+function openTab(event, tabId) {
+    document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll('.tab-buttons button').forEach(btn => btn.classList.remove('active'));
     document.getElementById(tabId).classList.add('active');
     event.target.classList.add('active');
 }
 
 // Group management
-function addGroup(){
-    const groupId=prompt("Group ID (e.g., 'core'):");
-    if(!groupId) return;
-    const groupName=prompt("Display Name:",groupId);
-    groups.push({id:groupId,name:groupName,minUnits:0,maxUnits:null});
+function addGroup() {
+    const groupId = prompt("Group ID (e.g., 'core'):");
+    if (!groupId) return;
+    
+    const groupName = prompt("Display Name:", groupId);
+    if (!groupName) return;
+    
+    // Check if group ID already exists
+    if (groups.some(g => g.id === groupId)) {
+        alert(`Group ID '${groupId}' already exists. Please choose a different ID.`);
+        return;
+    }
+    
+    groups.push({
+        id: groupId,
+        name: groupName,
+        minUnits: 0,
+        maxUnits: null
+    });
+    
     renderGroups();
     renderGroupRules();
+    renderUnits(); // Update unit group selections
 }
 
-function renderGroups(){
-    const tbody=document.querySelector("#groups-table tbody");
-    tbody.innerHTML='';
-    groups.forEach((g,i)=>{
-        tbody.innerHTML+=`<tr>
-            <td><input value="${g.id}" onchange="groups[${i}].id=this.value"></td>
-            <td><input value="${g.name}" onchange="groups[${i}].name=this.value"></td>
-            <td><input type="number" value="${g.minUnits||0}" onchange="groups[${i}].minUnits=parseInt(this.value)||0"></td>
-            <td><input type="number" value="${g.maxUnits||''}" onchange="groups[${i}].maxUnits=this.value?parseInt(this.value):null"></td>
+function renderGroups() {
+    const tbody = document.querySelector("#groups-table tbody");
+    tbody.innerHTML = '';
+    
+    groups.forEach((g, i) => {
+        tbody.innerHTML += `<tr>
+            <td><input value="${g.id}" onchange="updateGroupId(${i}, this.value)"></td>
+            <td><input value="${g.name}" onchange="groups[${i}].name = this.value"></td>
+            <td><input type="number" value="${g.minUnits || 0}" min="0" onchange="groups[${i}].minUnits = parseInt(this.value) || 0"></td>
+            <td><input type="number" value="${g.maxUnits || ''}" min="0" placeholder="No max" onchange="groups[${i}].maxUnits = this.value ? parseInt(this.value) : null"></td>
             <td><button onclick="deleteGroup(${i})">Delete</button></td>
         </tr>`;
     });
 }
 
-function deleteGroup(i){
-    if(confirm(`Delete group '${groups[i].id}'?`)){
+function updateGroupId(index, newId) {
+    if (!newId || newId.trim() === '') {
+        alert("Group ID cannot be empty");
+        document.querySelector(`#groups-table tbody tr:nth-child(${index + 1}) td:first-child input`).value = groups[index].id;
+        return;
+    }
+    
+    // Check if new ID is already in use
+    if (groups.some((g, i) => i !== index && g.id === newId)) {
+        alert(`Group ID '${newId}' is already in use. Please choose a different ID.`);
+        document.querySelector(`#groups-table tbody tr:nth-child(${index + 1}) td:first-child input`).value = groups[index].id;
+        return;
+    }
+    
+    // Update all units that reference this group
+    const oldId = groups[index].id;
+    units.forEach(u => {
+        if (u.groups.includes(oldId)) {
+            u.groups = u.groups.map(g => g === oldId ? newId : g);
+        }
+    });
+    
+    groups[index].id = newId;
+    renderGroupRules();
+    renderUnits();
+}
+
+function deleteGroup(i) {
+    if (confirm(`Delete group '${groups[i].id}'? This will remove it from any units that reference it.`)) {
         // Remove this group from any units that reference it
         units.forEach(u => {
             u.groups = u.groups.filter(g => g !== groups[i].id);
         });
-        groups.splice(i,1);
+        
+        groups.splice(i, 1);
         renderGroups();
         renderUnits();
         renderGroupRules();
@@ -144,114 +200,173 @@ function deleteGroup(i){
 }
 
 // Unit management
-function addUnit(){
-    const code=prompt("Unit Code:");
-    if(!code) return;
-    const name=prompt("Unit Name:");
-    const duration=parseInt(prompt("Duration (weeks):",document.getElementById("defaultDuration").value)) || parseInt(document.getElementById("defaultDuration").value);
+function addUnit() {
+    const code = prompt("Unit Code:");
+    if (!code) return;
     
-    let groupList=groups.map(g=>`${g.id} (${g.name})`).join('\n');
-    const selectedGroups=prompt(`Assign groups (separate with commas):\n\n${groupList}`)
-        .split(',')
-        .map(g=>g.trim().split(' ')[0])
-        .filter(g=>groups.some(gr=>gr.id===g));
+    const name = prompt("Unit Name:");
+    if (!name) return;
     
-    if(selectedGroups.length===0){
+    const duration = parseInt(prompt("Duration (weeks):", document.getElementById("defaultDuration").value)) || parseInt(document.getElementById("defaultDuration").value);
+    
+    let groupList = groups.map(g => `${g.id} (${g.name})`).join('\n');
+    const selectedGroups = prompt(`Assign groups (separate with commas):\n\n${groupList}`)
+        ?.split(',')
+        ?.map(g => g.trim().split(' ')[0])
+        ?.filter(g => groups.some(gr => gr.id === g)) || [];
+    
+    if (selectedGroups.length === 0) {
         alert("Using 'core' as default");
         selectedGroups.push("core");
     }
     
-    units.push({code,name,duration,groups:selectedGroups});
+    // Check if unit code already exists
+    if (units.some(u => u.code === code)) {
+        alert(`Unit with code '${code}' already exists.`);
+        return;
+    }
+    
+    units.push({
+        code,
+        name,
+        duration,
+        groups: selectedGroups
+    });
+    
     renderUnits();
 }
 
-function importUnits(){
-    const csv=prompt("Paste CSV (code,name,groups,duration):\nExample:\nAHCECR309,Conduct inspections,core,6");
-    if(!csv) return;
+function importUnits() {
+    const csv = prompt("Paste CSV (code,name,groups,duration):\nExample:\nAHCECR309,Conduct inspections,core,6");
+    if (!csv) return;
     
-    csv.split('\n').forEach(line=>{
+    const lines = csv.split('\n');
+    let importedCount = 0;
+    let duplicateCount = 0;
+    
+    lines.forEach(line => {
         const parts = line.split(',');
-        if(parts.length < 2) return;
+        if (parts.length < 2) return;
         
         const code = parts[0].trim();
         const name = parts[1].trim();
         const groupStr = parts.length > 2 ? parts[2].trim() : "core";
         const duration = parts.length > 3 ? parseInt(parts[3].trim()) : parseInt(document.getElementById("defaultDuration").value);
         
-        const groups = groupStr.split('|').map(g => g.trim());
+        const groups = groupStr.split('|').map(g => g.trim()).filter(g => g);
         
-        if(code && name){
+        if (code && name) {
+            // Skip if unit already exists
+            if (units.some(u => u.code === code)) {
+                duplicateCount++;
+                return;
+            }
+            
             units.push({
                 code,
                 name,
                 duration: duration || parseInt(document.getElementById("defaultDuration").value),
                 groups: groups.length ? groups : ["core"]
             });
+            importedCount++;
         }
     });
     
     renderUnits();
+    alert(`Imported ${importedCount} units. ${duplicateCount > 0 ? `${duplicateCount} duplicates were skipped.` : ''}`);
 }
 
-function renderUnits(){
-    const tbody=document.querySelector("#units-table tbody");
-    tbody.innerHTML='';
-    units.forEach((u,i)=>{
-        tbody.innerHTML+=`<tr>
-            <td><input value="${u.code}" onchange="units[${i}].code=this.value"></td>
-            <td><input value="${u.name}" onchange="units[${i}].name=this.value"></td>
-            <td><select multiple onchange="updateUnitGroups(${i},this)">
-                ${groups.map(g=>`<option value="${g.id}" ${u.groups.includes(g.id)?'selected':''}>${g.name}</option>`).join('')}
-            </select></td>
-            <td><input type="number" value="${u.duration}" onchange="units[${i}].duration=parseInt(this.value)||${parseInt(document.getElementById("defaultDuration").value)}"></td>
+function renderUnits() {
+    const tbody = document.querySelector("#units-table tbody");
+    tbody.innerHTML = '';
+    
+    units.forEach((u, i) => {
+        tbody.innerHTML += `<tr>
+            <td><input value="${u.code}" onchange="updateUnitCode(${i}, this.value)"></td>
+            <td><input value="${u.name}" onchange="units[${i}].name = this.value"></td>
+            <td>
+                <select multiple onchange="updateUnitGroups(${i}, this)">
+                    ${groups.map(g => `<option value="${g.id}" ${u.groups.includes(g.id) ? 'selected' : ''}>${g.name}</option>`).join('')}
+                </select>
+            </td>
+            <td><input type="number" value="${u.duration}" min="1" onchange="units[${i}].duration = parseInt(this.value) || ${parseInt(document.getElementById("defaultDuration").value)}"></td>
             <td><button onclick="deleteUnit(${i})">Delete</button></td>
         </tr>`;
     });
 }
 
-function updateUnitGroups(i,select){
-    units[i].groups=Array.from(select.selectedOptions).map(o=>o.value);
+function updateUnitCode(index, newCode) {
+    if (!newCode || newCode.trim() === '') {
+        alert("Unit code cannot be empty");
+        document.querySelector(`#units-table tbody tr:nth-child(${index + 1}) td:first-child input`).value = units[index].code;
+        return;
+    }
+    
+    // Check if new code is already in use
+    if (units.some((u, i) => i !== index && u.code === newCode)) {
+        alert(`Unit code '${newCode}' is already in use. Please choose a different code.`);
+        document.querySelector(`#units-table tbody tr:nth-child(${index + 1}) td:first-child input`).value = units[index].code;
+        return;
+    }
+    
+    units[index].code = newCode;
 }
 
-function deleteUnit(i){
-    if(confirm(`Delete unit '${units[i].code}'?`)){
-        units.splice(i,1);
+function updateUnitGroups(i, select) {
+    units[i].groups = Array.from(select.selectedOptions).map(o => o.value);
+    
+    // Ensure at least one group is selected
+    if (units[i].groups.length === 0) {
+        alert("Unit must belong to at least one group. Defaulting to 'core'.");
+        units[i].groups = ["core"];
+        renderUnits(); // Re-render to show the correct selection
+    }
+}
+
+function deleteUnit(i) {
+    if (confirm(`Delete unit '${units[i].code}'?`)) {
+        units.splice(i, 1);
         renderUnits();
     }
 }
 
 // Packaging rules
-function renderGroupRules(){
-    const container=document.getElementById('group-rules');
-    container.innerHTML='<h3>Group Rules</h3>';
+function renderGroupRules() {
+    const container = document.getElementById('group-rules');
+    container.innerHTML = '<h3>Group Rules</h3>';
     
-    groups.forEach(g=>{
-        if(g.id==='core') return;
+    groups.forEach(g => {
+        if (g.id === 'core') return;
         
-        container.innerHTML+=`<div class="rule">
+        container.innerHTML += `<div class="rule">
             <label>Group <strong>${g.id}</strong> (${g.name}): 
-                Require <input type="number" data-group="${g.id}" class="group-min" value="${g.minUnits||0}" min="0" onchange="updateGroupRule('${g.id}', 'min', this.value)"> 
-                to <input type="number" data-group="${g.id}" class="group-max" value="${g.maxUnits||''}" min="0" placeholder="No max" onchange="updateGroupRule('${g.id}', 'max', this.value)">
+                Require <input type="number" data-group="${g.id}" class="group-min" value="${g.minUnits || 0}" min="0" onchange="updateGroupRule('${g.id}', 'min', this.value)"> 
+                to <input type="number" data-group="${g.id}" class="group-max" value="${g.maxUnits || ''}" min="0" placeholder="No max" onchange="updateGroupRule('${g.id}', 'max', this.value)">
                 units
             </label>
         </div>`;
     });
 }
 
-function updateGroupRule(groupId, type, value){
+function updateGroupRule(groupId, type, value) {
     const group = groups.find(g => g.id === groupId);
-    if(group){
-        if(type === 'min'){
+    if (group) {
+        if (type === 'min') {
             group.minUnits = parseInt(value) || 0;
-        }else if(type === 'max'){
+        } else if (type === 'max') {
             group.maxUnits = value ? parseInt(value) : null;
         }
     }
 }
 
 // Tool generation
-function generateTool(){
-    const config={
+function generateTool() {
+    // Validate data before generating
+    if (!validateData()) {
+        return;
+    }
+    
+    const config = {
         title: document.getElementById("qualTitle").value || "Qualification Planner",
         code: document.getElementById("qualCode").value || "",
         defaultDuration: parseInt(document.getElementById("defaultDuration").value) || 6,
@@ -280,7 +395,7 @@ function generateTool(){
     
     config.groupRules = {};
     groups.forEach(g => {
-        if(g.id !== 'core'){
+        if (g.id !== 'core') {
             config.groupRules[g.id] = {
                 min: g.minUnits || 0,
                 max: g.maxUnits || null
@@ -289,9 +404,43 @@ function generateTool(){
     });
     
     document.getElementById("generatedCode").value = generateCompleteTool(config);
+    alert("Tool generated successfully!");
 }
 
-function generateCompleteTool(config){
+function validateData() {
+    // Check qualification details
+    if (!document.getElementById("qualTitle").value.trim()) {
+        alert("Please enter a qualification title");
+        openTab({target: document.querySelector('.tab-buttons button')}, 'tab-qualification');
+        return false;
+    }
+    
+    // Check groups
+    if (groups.length === 0) {
+        alert("Please add at least one unit group");
+        openTab({target: document.querySelector('.tab-buttons button:nth-child(2)')}, 'tab-groups');
+        return false;
+    }
+    
+    // Check units
+    if (units.length === 0) {
+        alert("Please add at least one unit");
+        openTab({target: document.querySelector('.tab-buttons button:nth-child(3)')}, 'tab-units');
+        return false;
+    }
+    
+    // Check core units
+    const coreUnits = units.filter(u => u.groups.includes('core'));
+    if (coreUnits.length === 0 && document.getElementById("coreUnitsRequired").checked) {
+        alert("Packaging rules require core units but no units are assigned to the 'core' group");
+        openTab({target: document.querySelector('.tab-buttons button:nth-child(3)')}, 'tab-units');
+        return false;
+    }
+    
+    return true;
+}
+
+function generateCompleteTool(config) {
     // Separate core units from other units
     const coreUnits = config.units.filter(u => u.groups.includes('core'));
     const electiveUnits = config.units.filter(u => !u.groups.includes('core'));
@@ -417,6 +566,11 @@ function generateCompleteTool(config){
             border-radius: 4px;
             width: 200px;
         }
+        .error-message {
+            color: #e74c3c;
+            margin-top: 5px;
+            font-size: 0.9em;
+        }
     </style>
 </head>
 <body>
@@ -427,7 +581,7 @@ function generateCompleteTool(config){
         
         ${config.groups.map(g => {
             const unitsInGroup = groupedUnits[g.id] || [];
-            if(unitsInGroup.length === 0) return '';
+            if (unitsInGroup.length === 0) return '';
             
             return `<div class="unit-group" id="${g.id}-group">
                 <span class="group-label">${g.name} ${g.minUnits || g.maxUnits ? 
@@ -453,10 +607,12 @@ function generateCompleteTool(config){
         <div id="validationIndicator" class="invalid">Please select units according to packaging rules.</div>
         
         <h2>2. Student Details</h2>
-        <label>Student Name: <input type="text" id="studentName" required /></label><br /><br />
+        <label>Student Name: <input type="text" id="studentName" required /></label>
+        <div id="studentNameError" class="error-message"></div>
         
         <h2>3. Schedule Options</h2>
-        <label>Course Start Date: <input type="date" id="startDate" required /></label><br /><br />
+        <label>Course Start Date: <input type="date" id="startDate" required /></label>
+        <div id="startDateError" class="error-message"></div>
         
         <button type="submit">Generate Schedule</button>
     </form>
@@ -483,7 +639,7 @@ function generateCompleteTool(config){
             const errors = validate(selected);
             const indicator = document.getElementById('validationIndicator');
             
-            if(errors.length > 0) {
+            if (errors.length > 0) {
                 indicator.className = 'invalid';
                 indicator.textContent = 'Invalid selection: ' + errors.join(', ');
                 return false;
@@ -507,8 +663,8 @@ function generateCompleteTool(config){
             const errors = [];
             
             // Validate core units
-            if(packagingRules.coreUnitsRequired) {
-                if(groupCounts.core !== packagingRules.coreUnitsCount) {
+            if (packagingRules.coreUnitsRequired) {
+                if (groupCounts.core !== packagingRules.coreUnitsCount) {
                     errors.push(\`Must select exactly \${packagingRules.coreUnitsCount} core units\`);
                 }
             }
@@ -517,17 +673,17 @@ function generateCompleteTool(config){
             Object.entries(groupRules).forEach(([groupId, rule]) => {
                 const count = groupCounts[groupId] || 0;
                 
-                if(rule.min && count < rule.min) {
+                if (rule.min && count < rule.min) {
                     errors.push(\`Group \${groupId} requires at least \${rule.min} units\`);
                 }
                 
-                if(rule.max && count > rule.max) {
+                if (rule.max && count > rule.max) {
                     errors.push(\`Group \${groupId} allows maximum \${rule.max} units\`);
                 }
             });
             
             // Validate total units
-            if(selected.length !== packagingRules.totalUnitsRequired) {
+            if (selected.length !== packagingRules.totalUnitsRequired) {
                 errors.push(\`Exactly \${packagingRules.totalUnitsRequired} units must be selected\`);
             }
             
@@ -537,11 +693,11 @@ function generateCompleteTool(config){
         function getSelectedUnits() {
             const selected = [];
             document.querySelectorAll("input[type=checkbox]").forEach(cb => {
-                if(cb.checked) {
+                if (cb.checked) {
                     const code = cb.dataset.code;
                     const name = cb.dataset.name;
                     const groups = cb.dataset.groups ? cb.dataset.groups.split(',') : ["core"];
-                    const duration = parseInt(document.querySelector(\`input.duration[data-unit="\${code}"]\`)?.value || ${config.defaultDuration};
+                    const duration = parseInt(document.querySelector(\`input.duration[data-unit="\${code}"]\`)?.value || ${config.defaultDuration});
                     
                     selected.push({ code, name, groups, duration });
                 }
@@ -553,7 +709,7 @@ function generateCompleteTool(config){
             const schedule = [];
             let currentDate = new Date(startDateStr);
             
-            for(const unit of units) {
+            for (const unit of units) {
                 const startDate = new Date(currentDate);
                 const endDate = new Date(startDate);
                 endDate.setDate(endDate.getDate() + (unit.duration * 7) - 1);
@@ -581,7 +737,7 @@ function generateCompleteTool(config){
         function renderSchedule(schedule, startDateStr) {
             const resultsDiv = document.getElementById('results');
             
-            if(!schedule.length) {
+            if (!schedule.length) {
                 resultsDiv.innerHTML = "<p>No schedule available.</p>";
                 return;
             }
@@ -599,7 +755,7 @@ function generateCompleteTool(config){
                 <p><strong>Duration:</strong> \${weeks} weeks (\${formatDate(startDate)} to \${formatDate(endDate)})</p>
             \`;
             
-            if(weeks > 100) {
+            if (weeks > 100) {
                 html += \`<p style="color:red">⚠ Exceeds 100-week target</p>\`;
             }
             
@@ -632,7 +788,7 @@ function generateCompleteTool(config){
         
         function exportToCSV() {
             const table = document.querySelector('#results table');
-            if(!table) return alert('No schedule to export');
+            if (!table) return alert('No schedule to export');
             
             const studentName = document.getElementById('studentName').value || 'schedule';
             let csv = \`Student Name,\${studentName}\\n\`;
@@ -663,7 +819,7 @@ function generateCompleteTool(config){
         
         function exportToPDF() {
             const table = document.querySelector('#results table');
-            if(!table) return alert('No schedule to export');
+            if (!table) return alert('No schedule to export');
             
             const studentName = document.getElementById('studentName').value || 'schedule';
             const doc = new jsPDF();
@@ -726,48 +882,71 @@ function generateCompleteTool(config){
             document.getElementById('unitForm').addEventListener('submit', e => {
                 e.preventDefault();
                 
+                // Clear previous errors
+                document.getElementById('studentNameError').textContent = '';
+                document.getElementById('startDateError').textContent = '';
+                
+                // Validate form
+                let isValid = true;
+                const studentName = document.getElementById('studentName').value;
+                const startDate = document.getElementById('startDate').value;
+                
+                if (!studentName || studentName.trim() === '') {
+                    document.getElementById('studentNameError').textContent = 'Please enter student name';
+                    isValid = false;
+                }
+                
+                if (!startDate) {
+                    document.getElementById('startDateError').textContent = 'Please select a start date';
+                    isValid = false;
+                }
+                
+                if (!isValid) return;
+                
                 const selected = getSelectedUnits();
                 const errors = validate(selected);
                 
-                if(errors.length > 0) {
+                if (errors.length > 0) {
                     alert('Please fix the following issues:\\n\\n' + errors.join('\\n'));
-                    return;
-                }
-                
-                const startDate = document.getElementById('startDate').value;
-                if(!startDate) {
-                    alert('Please select a start date');
                     return;
                 }
                 
                 const schedule = generateSchedule(selected, startDate);
                 renderSchedule(schedule, startDate);
+                
+                // Scroll to results
+                document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
             });
             
             // Set default date to today
             const today = new Date();
             const formattedDate = today.toISOString().substr(0, 10);
             document.getElementById('startDate').value = formattedDate;
+            
+            // Initial validation
+            validateSelection();
         });
-
+    </script>
+</body>
+</html>`;
 }
 
-function downloadTool(){
-    const code=document.getElementById("generatedCode").value;
-    if(!code) return alert('Please generate the tool first');
+function downloadTool() {
+    const code = document.getElementById("generatedCode").value;
+    if (!code) return alert('Please generate the tool first');
     
-    const blob=new Blob([code],{type:"text/html"});
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);
-    a.download="qualification-planner.html";
+    const blob = new Blob([code], { type: "text/html" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "qualification-planner.html";
     a.click();
 }
 
-function testTool(){
-    const code=document.getElementById("generatedCode").value;
-    if(!code) return alert('Please generate the tool first');
+function testTool() {
+    const code = document.getElementById("generatedCode").value;
+    if (!code) return alert('Please generate the tool first');
     
-    const win=window.open("","_blank");
+    const win = window.open("", "_blank");
     win.document.write(code);
     win.document.close();
 }
